@@ -33,7 +33,7 @@ export const MissingFileMenuItems = observer(() => {
 });
 
 export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
-  const { uiStore, locationStore } = useStore();
+  const { uiStore, locationStore, fileStore } = useStore();
 
   const handleViewFullSize = () => {
     uiStore.selectFile(file, true);
@@ -56,6 +56,11 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
     } else {
       uiStore.replaceSearchCriterias(crits);
     }
+  };
+
+  const handleImportTagsFrom = (tagsSource: (fileList: ClientFile[] | undefined) => any) => {
+    uiStore.selectFile(file, !uiStore.fileSelection.has(file));
+    tagsSource(Array.from(uiStore.fileSelection));
   };
 
   return (
@@ -154,6 +159,13 @@ export const FileViewerMenuItems = ({ file }: { file: ClientFile }) => {
             )
           }
           text="Same Modification Date"
+        />
+      </MenuSubItem>
+      <MenuSubItem text="Import Tags From File" icon={IconSet.TAG_ADD}>
+        <MenuItem
+          onClick={() => handleImportTagsFrom(fileStore.readTagsFromFilePixiv)}
+          text="Pixiv-Metadata"
+          icon={IconSet.TAG_GROUP}
         />
       </MenuSubItem>
     </>

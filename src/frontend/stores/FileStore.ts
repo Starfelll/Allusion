@@ -13,6 +13,7 @@ import { debounce } from 'common/timeout';
 import { getThumbnailPath } from 'common/fs';
 import { promiseAllLimit } from 'common/promise';
 import RootStore from './RootStore';
+import path from 'path';
 
 export const FILE_STORAGE_KEY = 'Allusion_File';
 
@@ -61,10 +62,14 @@ class FileStore {
     this.debouncedSaveFilesToSave = debounce(this.saveFilesToSave, 100).bind(this);
   }
 
-  @action.bound async readTagsFromFiles() {
-    const toastKey = 'read-tags-from-file';
+  @action.bound async importTags(
+    fileList: ClientFile[] = this.fileList,
+    tagsSource: (file: ClientFile) => Promise<string[][]>,
+  ) {
+    const toastKey = 'import-tags';
+
     try {
-      const numFiles = this.fileList.length;
+      const numFiles = fileList.length;
       for (let i = 0; i < numFiles; i++) {
         AppToaster.show(
           {
@@ -73,17 +78,15 @@ class FileStore {
           },
           toastKey,
         );
-        const file = runInAction(() => this.fileList[i]);
+        const file = runInAction(() => fileList[i]);
 
         const absolutePath = file.absolutePath;
-
         try {
-          const tagsNameHierarchies = await this.rootStore.exifTool.readTags(absolutePath);
+          const tagsNameHierarchies = await tagsSource(file);
 
           // Now that we know the tag names in file metadata, add them to the files in Allusion
           // Main idea: Find matching tag with same name, otherwise, insert new
           //   for now, just match by the name at the bottom of the hierarchy
-
           const { tagStore } = this.rootStore;
           for (const tagHierarchy of tagsNameHierarchies) {
             const match = tagStore.findByName(tagHierarchy[tagHierarchy.length - 1]);
@@ -125,6 +128,10 @@ class FileStore {
         toastKey,
       );
     }
+  }
+
+  @action.bound async readTagsFromFiles() {
+    this.importTags(this.fileList, (file) => this.rootStore.exifTool.readTags(file.absolutePath));
   }
 
   @action.bound async writeTagsToFiles() {
@@ -178,6 +185,41 @@ class FileStore {
         toastKey,
       );
     }
+  }
+
+  @action.bound async readTagsFromFilePixiv(fileList: ClientFile[] | undefined) {
+    const idPattern = /(.*)_p\d+/;
+
+    await this.importTags(fileList, (file: ClientFile) => {
+      const filePath = path.parse(file.absolutePath);
+      const id = filePath.name.match(idPattern)?.[1];
+
+      if (id) {
+        const tagsFilePath = path.join(filePath.dir, 'metadata', `${id}.json`);
+
+        try {
+          fse.accessSync(tagsFilePath, fse.constants.R_OK);
+          const tagsData = JSON.parse(fse.readFileSync(tagsFilePath, 'utf-8'));
+          const tags: Array<any> | undefined = tagsData.tags;
+          if (tags) {
+            const result = Array<Array<string>>();
+            for (const tag of tags) {
+              const tmpTag = Array<string>();
+              if (tag.name) {
+                tmpTag.push(tag.name);
+              }
+              if (tag.translated_name) {
+                tmpTag.push(tag.translated_name);
+              }
+              result.push(tmpTag);
+            }
+            return Promise.resolve(result);
+          }
+        } catch {}
+      }
+
+      return Promise.reject();
+    });
   }
 
   @computed get showsAllContent() {
